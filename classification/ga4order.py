@@ -60,7 +60,7 @@ def merge_patches(patches, indices, patch_size=16):
     num_patches = len(indices)
     H, W = patch_size * (int(np.sqrt(num_patches))), patch_size * (int(np.sqrt(num_patches)))
     patches = patches.reshape(int(np.sqrt(num_patches)), int(np.sqrt(num_patches)), 3, patch_size, patch_size)
-    patches = patches.permute(0, 2, 1, 3, 4).reshape(3, H, W)
+    patches = patches.permute(2, 0, 3, 1, 4).reshape(3, H, W)
     return patches
 
 def reorder(image: torch.Tensor, new_order: np.array):

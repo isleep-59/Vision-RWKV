@@ -137,26 +137,52 @@ def solve(model, image: torch.Tensor, target: torch.Tensor, index: int, output: 
     - model: 模型
     - image: (C, H, W) 的图像张量
     - target: 目标标签
+    - index: 图像索引
     """
-    algorithm_param = {'max_num_iteration': 10,\
-                    'population_size':100,\
-                    'mutation_probability':0.05,\
+    algorithm_param = {'max_num_iteration': 100,\
+                    'population_size':25,\
+                    'mutation_probability':0.8,\
                     'elit_ratio': 0.05,\
-                    'crossover_probability': 0.8,\
+                    'crossover_probability': 0.001,\
                     'parents_portion': 0.5,\
                     'crossover_type':'pmx',\
                     'mutation_type':'swap',\
+                    'init_type':'sequential',\
                     'max_iteration_without_improv':None}
 
     m=ga(function=f,\
             dimension=196,\
             function_timeout=10000,\
             algorithm_parameters=algorithm_param,\
+            log_limit=100,\
+            log_directory=f'{log_directory}/{index}',\
             model=model,\
             image=image,\
             target=target)
 
     m.run()
+
+    # dir_name = f'{m.init_type}_{m.current_time}'
+    # dir_path = f'/workspace/Order-Matters/Vision-RWKV/classification/ga4order_logs/{dir_name}/'
+
+    # 保存算法参数
+    if not os.path.exists(f'{log_directory}/algorithm_parameter'):
+        with open(f'{log_directory}/algorithm_parameter', 'w') as file:
+            for key, value in algorithm_param.items():
+                file.write(f'{key}: {value}\n')
+
+    # 保存每次搜索结果
+    dir_path = f'{log_directory}/{index}'
+    os.makedirs(dir_path, exist_ok=True)
+    np.savetxt(f'{dir_path}/logits.npy', output.cpu().numpy().T)
+    var = np.arange(196)
+    mismatch_num = np.sum(m.best_variable.astype(int) != var)
+    with open(f'{dir_path}/label_change.txt', 'w') as file:
+        file.write(f'{index}: \n\tgt_label: {target[0]} \n\tinf_label: {torch.argmax(output)} \n\tbeforeloss: {evaluate(output, target)} \n\tafter_loss: {m.best_function - 0.1 * mismatch_num} \n\tmismatch_num: {mismatch_num}\n\n')
+    original_image_path = f'{dir_path}/original_image.png'
+    reordered_image_path = f'{dir_path}/rearranged_image.png'
+    save_images(m.best_variable, image, original_image_path, reordered_image_path)
+
 
 def main(args):
     cfg = mmcv.Config.fromfile(args.config)

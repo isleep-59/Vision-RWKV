@@ -32,9 +32,10 @@ def split_image(image: torch.Tensor, patch_size = 16):
     assert H % patch_size == 0 and W % patch_size == 0, "图像尺寸必须是 patch_size 的整数倍"
     
     num_patches = (H // patch_size) * (W // patch_size)
+
     patches = image.unfold(1, patch_size, patch_size).unfold(2, patch_size, patch_size)
     patches = patches.permute(1, 2, 0, 3, 4).reshape(num_patches, C, patch_size, patch_size)
-    indices = np.arange(num_patches).reshape(H // patch_size, W // patch_size).flatten()
+    indices = np.arange(num_patches)
     return indices, patches
 
 def rearrange_patches(patches, indices, new_order):
@@ -62,45 +63,75 @@ def merge_patches(patches, indices, patch_size=16):
     patches = patches.permute(0, 2, 1, 3, 4).reshape(3, H, W)
     return patches
 
+def reorder(image: torch.Tensor, new_order: np.array):
+    """
+    将图像重新排列
+    - image: (C, H, W) 的张量
+    - indices: (196,) 编号数组
+    - new_order: (196,) 重新排列的索引顺序
+    """
+    indices, patches = split_image(image)
+    patches = rearrange_patches(patches, indices, new_order)
+    rearranged_image = merge_patches(patches, indices)
+    return rearranged_image
 
-@torch.no_grad()
-def evaluate(model, image, target):
+
+def evaluate(output: torch.Tensor, target: torch.Tensor):
     """
     计算图像的损失
     - image: (C, H, W) 的图像张量
     - model: 模型
     """
+    loss = -torch.log(output[0][target[0]])
+
+    return loss
+
+
+def test_inf(model, image: torch.Tensor, target: torch.Tensor):
+    """
+    图像推理
+    - model: 模型
+    - image: (C, H, W) 的图像张量
+    - target: 目标标签
+    """
     image = image.unsqueeze(0)
-    target = torch.from_numpy(target).unsqueeze(0)
-
-    criterion = torch.nn.CrossEntropyLoss()
     model.eval()
-    output = model(image, target)
+    output = model(image, return_loss=False)
     output = torch.from_numpy(np.array(output))
-    loss = criterion(output, target)
-
-    return loss.item()
+    return output
 
 
-def f(new_order, kwargs):
+def f(new_order: np.array, kwargs):
     """
     优化目标函数
     - new_order: 重新排列的索引顺序
     """
 
-    model = kwargs["model"]
-    image = kwargs["image"]
-    target = kwargs["target"]
+    model, image, target = kwargs["model"], kwargs["image"], kwargs["target"]
+    reordered_image = reorder(image, new_order)
+    output = test_inf(model, reordered_image, target)
+    loss = evaluate(output, target)
 
-    indices, patches = split_image(image, 16)
-    patches = rearrange_patches(patches, indices, new_order)
-    rearranged_image = merge_patches(patches, indices, 16)
-    loss = evaluate(model, rearranged_image, target)
+    var = np.arange(196)
+    mismatch_num = np.sum(new_order != var)
     
-    return loss
+    return loss + 0.1 * mismatch_num
 
 
-def solve(model, image, target):
+def save_images(new_order, image, original_image_path, reordered_image_path):
+    """
+    保存排列前后的图像
+    - new_order: 重新排列的索引顺序
+    - image: 原始图像
+    - original_image_path: 原始图像保存路径
+    - reordered_image_path: 重新排列图像保存路径
+    """
+    vutils.save_image(image, original_image_path)
+    reordered_image = reorder(image, new_order)
+    vutils.save_image(reordered_image, reordered_image_path)
+
+
+def solve(model, image: torch.Tensor, target: torch.Tensor, index: int, output: torch.Tensor, log_directory: str):
     """
     优化问题求解
     - model: 模型

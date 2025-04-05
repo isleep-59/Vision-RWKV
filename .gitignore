@@ -6,3 +6,8 @@
 **/data
 segmentation/ops
 batchscript-*
+classification/ga4order_logs
+classification/ga4order_npy
+classification/wrong_classification
+classification/*.png
+classification/*.txt

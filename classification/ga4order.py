@@ -20,17 +20,7 @@ urllib3.disable_warnings()
 
 from geneticalgorithm.geneticalgorithm import geneticalgorithm as ga
 import mmcls_custom
-
-def import_abspy(name="models", path="classification/"):
-    import sys
-    import importlib
-
-    path = os.path.abspath(path)
-    assert os.path.isdir(path)
-    sys.path.insert(0, path)
-    module = importlib.import_module(name)
-    sys.path.pop(0)
-    return module
+import datetime
 
 def split_image(image: torch.Tensor, patch_size = 16):
     """

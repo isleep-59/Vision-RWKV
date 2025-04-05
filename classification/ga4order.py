@@ -5,6 +5,7 @@ from numbers import Number
 import mmcv
 import numpy as np
 import torch
+import torchvision.utils as vutils
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
 
@@ -216,31 +217,6 @@ def main(args):
 
     dataset = build_dataset(cfg.data.test, default_args=dict(test_mode=True))
 
-    # build the dataloader
-    # The default loader config
-    # loader_cfg = dict(
-    #     # cfg.gpus will be ignored if distributed
-    #     num_gpus=1 if cfg.device == 'ipu' else len(cfg.gpu_ids),
-    #     dist=distributed,
-    #     round_up=True,
-    # )
-    # # The overall dataloader settings
-    # loader_cfg.update({
-    #     k: v
-    #     for k, v in cfg.data.items() if k not in [
-    #         'train', 'val', 'test', 'train_dataloader', 'val_dataloader',
-    #         'test_dataloader'
-    #     ]
-    # })
-    # test_loader_cfg = {
-    #     **loader_cfg,
-    #     'shuffle': False,  # Not shuffle by default
-    #     'sampler_cfg': None,  # Not use sampler by default
-    #     **cfg.data.get('test_dataloader', {}),
-    # }
-    # # the extra round_up data will be removed during gpu/cpu collect
-    # data_loader = build_dataloader(dataset, **test_loader_cfg)
-
     # build the model and load checkpoint
     model = build_classifier(cfg.model)
     fp16_cfg = cfg.get('fp16', None)
@@ -268,57 +244,36 @@ def main(args):
             model = ipu_model_wrapper(model, opts, fp16_cfg=fp16_cfg)
         model.CLASSES = CLASSES
         show_kwargs = args.show_options or {}
-        # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-        #                           **show_kwargs)
     else:
         model = wrap_distributed_model(
             model, device=cfg.device, broadcast_buffers=False)
-        # outputs = multi_gpu_test(model, data_loader, args.tmpdir,
-        #                          args.gpu_collect)
     
-    image = dataset[0]['img']
-    target = dataset.data_infos[0]['gt_label']
+    # image = dataset[10]['img']
+    # target = dataset.data_infos[10]['gt_label']
 
-    solve(model, image, target)
-    # show_kwargs = args.show_options or {}
-    # outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-    #                             **show_kwargs)    
+    # solve(model, image, target)
 
-    # rank, _ = get_dist_info()
-    # if rank == 0:
-    #     results = {}
-    #     logger = get_root_logger()
-    #     if args.metrics:
-    #         eval_results = dataset.evaluate(
-    #             results=outputs,
-    #             metric=args.metrics,
-    #             metric_options=args.metric_options,
-    #             logger=logger)
-    #         results.update(eval_results)
-    #         for k, v in eval_results.items():
-    #             if isinstance(v, np.ndarray):
-    #                 v = [round(out, 2) for out in v.tolist()]
-    #             elif isinstance(v, Number):
-    #                 v = round(v, 2)
-    #             else:
-    #                 raise ValueError(f'Unsupport metric type: {type(v)}')
-    #             print(f'\n{k} : {v}')
-    #     if args.out:
-    #         if 'none' not in args.out_items:
-    #             scores = np.vstack(outputs)
-    #             pred_score = np.max(scores, axis=1)
-    #             pred_label = np.argmax(scores, axis=1)
-    #             pred_class = [CLASSES[lb] for lb in pred_label]
-    #             res_items = {
-    #                 'class_scores': scores,
-    #                 'pred_score': pred_score,
-    #                 'pred_label': pred_label,
-    #                 'pred_class': pred_class
-    #             }
-    #             if 'all' in args.out_items:
-    #                 results.update(res_items)
-    #             else:
-    #                 for key in args.out_items:
-    #                     results[key] = res_items[key]
-    #         print(f'\ndumping results to {args.out}')
-    #         mmcv.dump(results, args.out)
+    # new_order = np.loadtxt('/workspace/Order-Matters/Vision-RWKV/classification/ga4order_logs/random_2025-03-30_14-23-20/best_solution.npy')
+    # reordered_image = reorder(image, new_order)
+    # test_inf(model, reordered_image, target)
+    
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_directory = f'/workspace/Order-Matters/Vision-RWKV/classification/wrong_classification/{current_time}'
+    for index in range(0, 100):
+        image = dataset[index]['img']
+        target = dataset.data_infos[index]['gt_label']
+        target = torch.from_numpy(target)
+        target = target.unsqueeze(0)
+        output = test_inf(model, image, target)
+        if torch.argmax(output) != target:
+            solve(model, image, target, index, output, log_directory)   
+              
+
+    # index = 35        
+    # image = dataset[index]['img']
+    # target = dataset.data_infos[index]['gt_label']
+    # target = torch.from_numpy(target)
+    # target = target.unsqueeze(0)
+    # output = test_inf(model, image, target)
+    # if torch.argmax(output) != target:
+    #     solve(model, image, target, index, output) 

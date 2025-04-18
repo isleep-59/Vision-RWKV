@@ -1,6 +1,7 @@
 # my_modules/finetune_vrwkv.py
 import torch
 import torch.nn as nn
+import numpy as np
 from mmcv.runner import BaseModule, load_checkpoint
 from mmcls.models.builder import BACKBONES, build_backbone
 
@@ -36,7 +37,11 @@ class Score(nn.Module):
         # self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
         # self.bn = nn.BatchNorm2d(out_channels)
         # self.relu = nn.ReLU(inplace=True)
-        nn.Linear(in_channels, out_channels, bias=False)
+        self.linear = nn.Linear(in_channels, out_channels, bias=False)
+
+    def forward(self, x):
+        x = self.linear(x)
+        return x
 
 
 class SoftSort(nn.Module):
@@ -96,7 +101,35 @@ class OrderFinetuneVRWKV(BaseModule):
 
         self.backbone.eval()
 
-    def forward(self, x):
-        x = self.score(x)
-        x = self.backbone(x)
+    def reorder_image(self, x, P):
+        """
+        将图像分成小块
+        - x: (B, C, H, W) 的图像张量
+        """
+        B, C, H, W = x.shape
+        assert H == self.img_size and W == self.img_size, \
+            f"Input image size ({H}*{W}) doesn't match model ({self.img_size}*{self.img_size})."
+        x = x.unfold(2, self.patch_size, self.stride).unfold(3, self.patch_size, self.stride)   # B, C, H/ps, W/ps, ps, ps
+        x = x.permute(0, 2, 3, 1, 4, 5).contiguous()    # B, H/ps, W/ps, C, ps, ps
+        x.reshape(B, (H // self.patch_size) * (W // self.patch_size), C, self.patch_size, self.patch_size).contiguous()   # B, num_patches, C, ps, ps
+
+        x_flat = x.reshape(B, self.num_patches, -1)
+        # print("x_flat.shape", x_flat.shape)
+        # print("P.shape", P.shape)
+        P = P.squeeze(-1)
+        x = torch.bmm(P, x_flat).reshape(B, int(np.sqrt(self.num_patches)), int(np.sqrt(self.num_patches)), C, self.patch_size, self.patch_size)
+        x = x.permute(0, 3, 1, 4, 2, 5).contiguous().reshape(B, C, H, W).contiguous()
         return x
+
+    def forward(self, x):
+        # get permutation matrix
+        embed_image = self.patch_embed(x)
+        s = self.score(embed_image)
+        P = self.soft_sort(s)
+
+        # sort the original image
+        x_re = self.reorder_image(x, P)
+
+        # inference
+        y = self.backbone(x_re)
+        return y

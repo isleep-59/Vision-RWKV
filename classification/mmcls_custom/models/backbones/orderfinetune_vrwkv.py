@@ -91,7 +91,7 @@ class OrderFinetuneVRWKV(BaseBackbone):
             out_channels=1
         )
 
-        self.soft_sort = SoftSort(tau=1.0, hard=False, pow=1.0)
+        self.soft_sort = SoftSort(tau=1.0, hard=True, pow=1.0)
 
         backbone_cfg['img_size'] = self.img_size
         backbone_cfg['patch_size'] = self.patch_size

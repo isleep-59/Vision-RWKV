@@ -1,15 +1,15 @@
-# my_modules/finetune_vrwkv.py
 import torch
 import torch.nn as nn
 import numpy as np
 from mmcv.runner import BaseModule, load_checkpoint
 from mmcls.models.builder import BACKBONES, build_backbone
+from mmcls.models.backbones.base_backbone import BaseBackbone
 
 
-class PatchEmbed(nn.Module):
+class PatchEmbed(BaseModule):
     """ 2D Image to Patch Embedding
     """
-    def __init__(self, img_size=224, patch_size=16, stride=16, in_chans=3, embed_dim=768, norm_layer=None, flatten=True):
+    def __init__(self, img_size=224, patch_size=16, stride=16, in_channels=3, embed_dims=768, norm_layer=None, flatten=True):
         super().__init__()
         self.img_size = img_size
         self.patch_size = patch_size
@@ -17,8 +17,8 @@ class PatchEmbed(nn.Module):
         self.num_patches = self.grid_size[0] * self.grid_size[1]
         self.flatten = flatten
 
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride)
-        self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
+        self.proj = nn.Conv2d(in_channels, embed_dims, kernel_size=patch_size, stride=stride)
+        self.norm = norm_layer(embed_dims) if norm_layer else nn.Identity()
 
     def forward(self, x):
         B, C, H, W = x.shape
@@ -31,7 +31,7 @@ class PatchEmbed(nn.Module):
         return x
     
 
-class Score(nn.Module):
+class Score(BaseModule):
     def __init__(self, in_channels, out_channels):
         super(Score, self).__init__()
         # self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
@@ -44,7 +44,7 @@ class Score(nn.Module):
         return x
 
 
-class SoftSort(nn.Module):
+class SoftSort(BaseModule):
     def __init__(self, tau=1.0, hard=False, pow=1.0):
         super(SoftSort, self).__init__()
         self.hard = hard
@@ -68,28 +68,34 @@ class SoftSort(nn.Module):
     
 
 @BACKBONES.register_module()
-class OrderFinetuneVRWKV(BaseModule):
+class OrderFinetuneVRWKV(BaseBackbone):
     def __init__(self, finetune_cfg, backbone_cfg, backbone_ckpt=None, init_cfg=None):
         super().__init__(init_cfg)
+        self.img_size=finetune_cfg.img_size
+        self.patch_size=finetune_cfg.patch_size
+        self.stride=finetune_cfg.stride
+        self.in_channels=finetune_cfg.in_channels
+        self.embed_dims=finetune_cfg.embed_dims
+        self.num_patches=finetune_cfg.num_patches
 
         self.patch_embed = PatchEmbed(
-            img_size=finetune_cfg.img_size,
-            patch_size=finetune_cfg.patch_size,
-            stride=finetune_cfg.stride,
-            in_chans=finetune_cfg.in_channels,
-            embed_dim=finetune_cfg.embed_dims
+            img_size=self.img_size,
+            patch_size=self.patch_size,
+            stride=self.stride,
+            in_channels=self.in_channels,
+            embed_dims=self.embed_dims
         )
 
         self.score = Score(
-            in_channels=finetune_cfg.embed_dims,
+            in_channels=self.embed_dims,
             out_channels=1
         )
 
         self.soft_sort = SoftSort(tau=1.0, hard=False, pow=1.0)
 
-        backbone_cfg['img_size'] = finetune_cfg.img_size
-        backbone_cfg['patch_size'] = finetune_cfg.patch_size
-        backbone_cfg['embed_dims'] = finetune_cfg.num_patches
+        backbone_cfg['img_size'] = self.img_size
+        backbone_cfg['patch_size'] = self.patch_size
+        backbone_cfg['embed_dims'] = self.embed_dims
         self.backbone = build_backbone(backbone_cfg)
 
         if backbone_ckpt is not None:

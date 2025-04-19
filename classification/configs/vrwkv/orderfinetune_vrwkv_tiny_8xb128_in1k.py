@@ -43,5 +43,6 @@ checkpoint_config = dict(
 evaluation = dict(interval=1)
 # 8 gpus
 data = dict(
-    samples_per_gpu=128,
+    samples_per_gpu=256,
+    workers_per_gpu=24,
 )

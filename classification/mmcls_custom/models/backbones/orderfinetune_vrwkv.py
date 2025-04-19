@@ -129,12 +129,17 @@ class OrderFinetuneVRWKV(BaseBackbone):
 
     def forward(self, x):
         # get permutation matrix
+        # print("x.shape", x.shape)
         embed_image = self.patch_embed(x)
+        # print("embed_image.shape", embed_image.shape)
         s = self.score(embed_image)
-        P = self.soft_sort(s)
+        # print("s.shape", s.shape)
+        P = self.soft_sort(s.squeeze(-1))
+        # print("P.shape", P.shape)
 
         # sort the original image
-        x_re = self.reorder_image(x, P)
+        x_re = self.reorder_image(x, P).contiguous()
+        # print("x_re.shape", x_re.shape)
 
         # inference
         y = self.backbone(x_re)

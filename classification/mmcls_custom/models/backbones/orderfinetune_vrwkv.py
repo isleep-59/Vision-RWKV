@@ -26,7 +26,7 @@ class PatchEmbed(BaseModule):
             f"Input image size ({H}*{W}) doesn't match model ({self.img_size}*{self.img_size})."
         x = self.proj(x)
         if self.flatten:
-            x = x.flatten(2).transpose(1, 2)  # BCHW -> BNC
+            x = x.flatten(2).transpose(1, 2).contiguous()  # BCHW -> BNC
         x = self.norm(x)
         return x
     
@@ -117,13 +117,13 @@ class OrderFinetuneVRWKV(BaseBackbone):
             f"Input image size ({H}*{W}) doesn't match model ({self.img_size}*{self.img_size})."
         x = x.unfold(2, self.patch_size, self.stride).unfold(3, self.patch_size, self.stride)   # B, C, H/ps, W/ps, ps, ps
         x = x.permute(0, 2, 3, 1, 4, 5).contiguous()    # B, H/ps, W/ps, C, ps, ps
-        x.reshape(B, (H // self.patch_size) * (W // self.patch_size), C, self.patch_size, self.patch_size).contiguous()   # B, num_patches, C, ps, ps
+        x = x.reshape(B, (H // self.patch_size) * (W // self.patch_size), C, self.patch_size, self.patch_size).contiguous()   # B, num_patches, C, ps, ps
 
-        x_flat = x.reshape(B, self.num_patches, -1)
+        x_flat = x.reshape(B, self.num_patches, -1).contiguous()  # B, num_patches, C*ps*ps
         # print("x_flat.shape", x_flat.shape)
         # print("P.shape", P.shape)
-        P = P.squeeze(-1)
-        x = torch.bmm(P, x_flat).reshape(B, int(np.sqrt(self.num_patches)), int(np.sqrt(self.num_patches)), C, self.patch_size, self.patch_size)
+        # P = P.squeeze(-1)
+        x = torch.bmm(P, x_flat).reshape(B, int(np.sqrt(self.num_patches)), int(np.sqrt(self.num_patches)), C, self.patch_size, self.patch_size).contiguous()  # B, num_patches, C*ps*ps
         x = x.permute(0, 3, 1, 4, 2, 5).contiguous().reshape(B, C, H, W).contiguous()
         return x
 

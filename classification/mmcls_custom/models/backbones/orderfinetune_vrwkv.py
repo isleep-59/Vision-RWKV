@@ -99,7 +99,7 @@ class OrderFinetuneVRWKV(BaseBackbone):
         self.backbone = build_backbone(backbone_cfg)
 
         if backbone_ckpt is not None:
-            load_checkpoint(self.backbone, backbone_ckpt, map_location='cpu')
+            load_checkpoint(self.backbone, backbone_ckpt, map_location='cuda')
             print(f"✅ Loaded backbone checkpoint from {backbone_ckpt}")
 
         for param in self.backbone.parameters():

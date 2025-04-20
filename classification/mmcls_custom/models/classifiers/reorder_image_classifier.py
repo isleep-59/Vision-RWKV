@@ -144,7 +144,7 @@ class ReorderImageClassifier(BaseClassifier):
         self.eval()
 
         with torch.no_grad():
-            reordered_img = self.reorder_module(img)
+            reordered_img, P = self.reorder_module(img)
             results = self.image_classifier_module.simple_test(reordered_img, **kwargs)
 
         return results
@@ -164,7 +164,7 @@ class ReorderImageClassifier(BaseClassifier):
         Returns:
             tuple[Tensor]: The feature tensor (or tuple of tensors).
         """
-        reordered_img, Permutation_matrix = self.reorder_module(img)
+        reordered_img, P = self.reorder_module(img)
         self.image_classifier_module.eval()
         with torch.no_grad():
             inner_features = self.image_classifier_module.extract_feat(reordered_img)

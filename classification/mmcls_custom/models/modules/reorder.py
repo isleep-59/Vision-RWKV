@@ -1,9 +1,8 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from mmcv.runner import BaseModule, load_checkpoint
-from mmcls.models.builder import BACKBONES, build_backbone
-from mmcls.models.backbones.base_backbone import BaseBackbone
+from mmcv.runner import BaseModule
+from mmcls.models.builder import MODELS
 
 
 class PatchEmbed(BaseModule):
@@ -32,15 +31,17 @@ class PatchEmbed(BaseModule):
     
 
 class Score(BaseModule):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, hidden_channels, out_channels):
         super(Score, self).__init__()
-        # self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1)
-        # self.bn = nn.BatchNorm2d(out_channels)
-        # self.relu = nn.ReLU(inplace=True)
-        self.linear = nn.Linear(in_channels, out_channels, bias=False)
+        self.mlp = nn.Sequential(
+            nn.Linear(in_channels, hidden_channels),
+            nn.GELU(), # 或 nn.ReLU()
+            # nn.Dropout(0.1), # 可选：防止过拟合
+            nn.Linear(hidden_channels, out_channels)
+        )
 
     def forward(self, x):
-        x = self.linear(x)
+        x = self.mlp(x)
         return x
 
 
@@ -53,9 +54,8 @@ class SoftSort(BaseModule):
 
     def forward(self, scores: torch.Tensor):
         """
-        scores: elements to be sorted. Typical shape: batch_size x n
+        scores: elements to be sorted. Typical shape: batch_size x n x 1
         """
-        scores = scores.unsqueeze(-1)
         sorted = scores.sort(descending=True, dim=1)[0]
         pairwise_diff = (scores.transpose(1, 2) - sorted).abs().pow(self.pow).neg() / self.tau
         P_hat = pairwise_diff.softmax(-1)
@@ -66,11 +66,11 @@ class SoftSort(BaseModule):
             P_hat = (P - P_hat).detach() + P_hat
         return P_hat
     
-
-@BACKBONES.register_module()
-class OrderFinetuneVRWKV(BaseBackbone):
-    def __init__(self, finetune_cfg, backbone_cfg, backbone_ckpt=None, init_cfg=None):
-        super().__init__(init_cfg)
+    
+@MODELS.register_module()
+class Reorder(BaseModule):
+    def __init__(self, finetune_cfg):
+        super().__init__()
         self.img_size=finetune_cfg.img_size
         self.patch_size=finetune_cfg.patch_size
         self.stride=finetune_cfg.stride
@@ -88,24 +88,11 @@ class OrderFinetuneVRWKV(BaseBackbone):
 
         self.score = Score(
             in_channels=self.embed_dims,
+            hidden_channels=self.embed_dims * 2,
             out_channels=1
         )
 
         self.soft_sort = SoftSort(tau=1.0, hard=True, pow=1.0)
-
-        backbone_cfg['img_size'] = self.img_size
-        backbone_cfg['patch_size'] = self.patch_size
-        backbone_cfg['embed_dims'] = self.embed_dims
-        self.backbone = build_backbone(backbone_cfg)
-
-        if backbone_ckpt is not None:
-            load_checkpoint(self.backbone, backbone_ckpt, map_location='cuda')
-            print(f"✅ Loaded backbone checkpoint from {backbone_ckpt}")
-
-        for param in self.backbone.parameters():
-            param.requires_grad = False
-
-        self.backbone.eval()
 
     def reorder_image(self, x, P):
         """
@@ -134,13 +121,11 @@ class OrderFinetuneVRWKV(BaseBackbone):
         # print("embed_image.shape", embed_image.shape)
         s = self.score(embed_image)
         # print("s.shape", s.shape)
-        P = self.soft_sort(s.squeeze(-1))
+        P = self.soft_sort(s)
         # print("P.shape", P.shape)
 
         # sort the original image
-        x_re = self.reorder_image(x, P).contiguous()
+        x = self.reorder_image(x, P).contiguous()
         # print("x_re.shape", x_re.shape)
 
-        # inference
-        y = self.backbone(x_re)
-        return y
+        return x, P
